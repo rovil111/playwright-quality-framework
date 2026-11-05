@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket Tracker</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1b1f24; }
+  label { display: block; margin-top: .75rem; font-weight: 600; }
+  input, select, button { font: inherit; padding: .4rem .6rem; }
+  input, select { width: 100%; box-sizing: border-box; }
+  button { margin-top: .75rem; cursor: pointer; }
+  .error { color: #a4161a; }
+  ul { list-style: none; padding: 0; }
+  li { display: flex; gap: .75rem; align-items: center; border-bottom: 1px solid #d0d7de; padding: .5rem 0; }
+  li button { margin: 0; }
+  .title { flex: 1; }
+  .closed .title { text-decoration: line-through; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ticket Tracker</h1>
+  <form id="new-ticket" novalidate>
+    <label for="title">Title</label>
+    <input id="title" name="title" aria-describedby="title-error">
+    <p id="title-error" class="error" role="alert"></p>
+    <label for="priority">Priority</label>
+    <select id="priority" name="priority">
+      <option value="low">Low</option>
+      <option value="medium" selected>Medium</option>
+      <option value="high">High</option>
+    </select>
+    <button type="submit">Add ticket</button>
+  </form>
+
+  <h2>Tickets</h2>
+  <label for="filter">Show</label>
+  <select id="filter">
+    <option value="">All</option>
+    <option value="open">Open</option>
+    <option value="closed">Closed</option>
+  </select>
+  <p id="empty" hidden>No tickets to show.</p>
+  <ul id="tickets" aria-label="Tickets"></ul>
+</main>
+<script>
+  const board = new URLSearchParams(location.search).get('board') || 'default';
+  const api = (path, options = {}) =>
+    fetch(path, { ...options, headers: { 'content-type': 'application/json', 'x-board': board } });
+  const list = document.getElementById('tickets');
+  const filter = document.getElementById('filter');
+  const empty = document.getElementById('empty');
+  const titleError = document.getElementById('title-error');
+
+  function row(ticket) {
+    const li = document.createElement('li');
+    li.className = ticket.status;
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = ticket.title;
+    const priority = document.createElement('span');
+    priority.textContent = ticket.priority;
+    const toggle = document.createElement('button');
+    toggle.textContent = ticket.status === 'open' ? 'Close' : 'Reopen';
+    toggle.setAttribute('aria-label', `${toggle.textContent} ${ticket.title}`);
+    toggle.onclick = async () => {
+      await api(`/api/tickets/${ticket.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: ticket.status === 'open' ? 'closed' : 'open' }),
+      });
+      await render();
+    };
+    const remove = document.createElement('button');
+    remove.textContent = 'Delete';
+    remove.setAttribute('aria-label', `Delete ${ticket.title}`);
+    remove.onclick = async () => {
+      await api(`/api/tickets/${ticket.id}`, { method: 'DELETE' });
+      await render();
+    };
+    li.append(title, priority, toggle, remove);
+    return li;
+  }
+
+  async function render() {
+    const query = filter.value ? `?status=${filter.value}` : '';
+    const tickets = await (await api(`/api/tickets${query}`)).json();
+    list.replaceChildren(...tickets.map(row));
+    empty.hidden = tickets.length > 0;
+  }
+
+  document.getElementById('new-ticket').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const res = await api('/api/tickets', {
+      method: 'POST',
+      body: JSON.stringify({ title: form.title.value, priority: form.priority.value }),
+    });
+    if (res.status === 422) {
+      const { errors } = await res.json();
+      titleError.textContent = errors.title || '';
+      return;
+    }
+    titleError.textContent = '';
+    form.title.value = '';
+    await render();
+  });
+  filter.addEventListener('change', render);
+  render();
+</script>
+</body>
+</html>
